@@ -184,10 +184,12 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		time("resourceLoader.reload");
 	}
 
-	// Check if session has existing data to restore
+	// Check if session has existing data to restore. Explicitly flushed idle
+	// sessions can have model/thinking state before they have any messages.
 	const existingSession = sessionManager.buildSessionContext();
-	const hasExistingSession = existingSession.messages.length > 0;
 	const hasThinkingEntry = sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change");
+	const hasPersistedRuntimeState = existingSession.model !== undefined || hasThinkingEntry;
+	const hasExistingSession = existingSession.messages.length > 0 || hasPersistedRuntimeState;
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;
@@ -362,6 +364,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	// Restore messages if session has existing data
 	if (hasExistingSession) {
 		agent.state.messages = existingSession.messages;
+		if (!existingSession.model && model) {
+			sessionManager.appendModelChange(model.provider, model.id);
+		}
 		if (!hasThinkingEntry) {
 			sessionManager.appendThinkingLevelChange(thinkingLevel);
 		}

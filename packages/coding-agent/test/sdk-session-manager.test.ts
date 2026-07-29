@@ -3,8 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getModel } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { ModelRuntime } from "../src/core/model-runtime.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 
 describe("createAgentSession session manager defaults", () => {
 	let tempDir: string;
@@ -60,6 +63,47 @@ describe("createAgentSession session manager defaults", () => {
 
 		expect(session.sessionManager).toBe(sessionManager);
 		expect(session.sessionManager.isPersisted()).toBe(false);
+
+		session.dispose();
+	});
+
+	it("restores flushed runtime state before any assistant messages exist", async () => {
+		const savedModel = getModel("anthropic", "claude-sonnet-4-5");
+		const defaultModel = getModel("anthropic", "claude-haiku-4-5");
+		expect(savedModel).toBeTruthy();
+		expect(defaultModel).toBeTruthy();
+
+		const sessionDir = join(agentDir, "sessions");
+		const initialManager = SessionManager.create(cwd, sessionDir, { id: "idle-resume" });
+		initialManager.appendModelChange(savedModel!.provider, savedModel!.id);
+		initialManager.appendThinkingLevelChange("high");
+		expect(initialManager.flush()).toBe(true);
+
+		const sessionFile = initialManager.getSessionFile()!;
+		const resumedManager = SessionManager.open(sessionFile, sessionDir);
+		const settingsManager = SettingsManager.create(cwd, agentDir);
+		settingsManager.setDefaultModelAndProvider(defaultModel!.provider, defaultModel!.id);
+		settingsManager.setDefaultThinkingLevel("low");
+		const modelRuntime = await ModelRuntime.create({
+			credentials: AuthStorage.inMemory({
+				anthropic: { type: "api_key", key: "test-key" },
+			}),
+			modelsPath: null,
+			allowModelNetwork: false,
+		});
+
+		const { session } = await createAgentSession({
+			cwd,
+			agentDir,
+			settingsManager,
+			sessionManager: resumedManager,
+			modelRuntime,
+		});
+
+		expect(session.agent.state.messages).toEqual([]);
+		expect(session.model?.id).toBe(savedModel!.id);
+		expect(session.thinkingLevel).toBe("high");
+		expect(resumedManager.getBranch().map((entry) => entry.type)).toEqual(["model_change", "thinking_level_change"]);
 
 		session.dispose();
 	});
