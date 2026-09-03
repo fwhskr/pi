@@ -9,6 +9,7 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "./extensions/index.ts";
+import { clearExtensionCache } from "./extensions/loader.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { CreateAgentSessionResult } from "./sdk.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
@@ -177,6 +178,13 @@ export class AgentSessionRuntime {
 		this.session.dispose();
 	}
 
+	private async createReplacementRuntime(
+		options: Parameters<CreateAgentSessionRuntimeFactory>[0],
+	): Promise<CreateAgentSessionRuntimeResult> {
+		clearExtensionCache();
+		return this.createRuntime(options);
+	}
+
 	private apply(result: CreateAgentSessionRuntimeResult): void {
 		this._session = result.session;
 		this._services = result.services;
@@ -211,7 +219,7 @@ export class AgentSessionRuntime {
 		assertSessionCwdExists(sessionManager, this.cwd);
 		await this.teardownCurrent("resume", sessionManager.getSessionFile());
 		this.apply(
-			await this.createRuntime({
+			await this.createReplacementRuntime({
 				cwd: sessionManager.getCwd(),
 				agentDir: this.services.agentDir,
 				sessionManager,
@@ -244,7 +252,7 @@ export class AgentSessionRuntime {
 
 		await this.teardownCurrent("new", sessionManager.getSessionFile());
 		this.apply(
-			await this.createRuntime({
+			await this.createReplacementRuntime({
 				cwd: this.cwd,
 				agentDir: this.services.agentDir,
 				sessionManager,
@@ -298,7 +306,7 @@ export class AgentSessionRuntime {
 				sessionManager.newSession({ parentSession: currentSessionFile });
 				await this.teardownCurrent("fork", sessionManager.getSessionFile());
 				this.apply(
-					await this.createRuntime({
+					await this.createReplacementRuntime({
 						cwd: this.cwd,
 						agentDir: this.services.agentDir,
 						sessionManager,
@@ -321,7 +329,7 @@ export class AgentSessionRuntime {
 			}
 			await this.teardownCurrent("fork", sessionManager.getSessionFile());
 			this.apply(
-				await this.createRuntime({
+				await this.createReplacementRuntime({
 					cwd: sessionManager.getCwd(),
 					agentDir: this.services.agentDir,
 					sessionManager,
@@ -340,7 +348,7 @@ export class AgentSessionRuntime {
 		}
 		await this.teardownCurrent("fork", sessionManager.getSessionFile());
 		this.apply(
-			await this.createRuntime({
+			await this.createReplacementRuntime({
 				cwd: this.cwd,
 				agentDir: this.services.agentDir,
 				sessionManager,
@@ -384,7 +392,7 @@ export class AgentSessionRuntime {
 		assertSessionCwdExists(sessionManager, this.cwd);
 		await this.teardownCurrent("resume", sessionManager.getSessionFile());
 		this.apply(
-			await this.createRuntime({
+			await this.createReplacementRuntime({
 				cwd: sessionManager.getCwd(),
 				agentDir: this.services.agentDir,
 				sessionManager,

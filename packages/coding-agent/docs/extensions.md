@@ -402,6 +402,10 @@ pi.on("session_start", async (event, ctx) => {
 });
 ```
 
+#### Extension source reloads
+
+When a session is replaced in a long-lived process (`/new`, `/resume`, `/fork`, `/clone`, or `/import`), pi clears the extension module cache before constructing the replacement runtime. The replacement `session_start` therefore uses extension source currently on disk. Pi does not watch files during an active session; use `/reload` or replace the session to pick up changes. The old instance receives `session_shutdown` first, so release session-scoped resources there.
+
 #### session_info_changed
 
 Fired when the current session display name is set via `/name`, RPC, or `pi.setSessionName()`.
