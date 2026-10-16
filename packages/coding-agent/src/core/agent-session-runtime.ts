@@ -9,6 +9,7 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "./extensions/index.ts";
+import { clearExtensionCache } from "./extensions/loader.ts";
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { CreateAgentSessionResult } from "./sdk.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
@@ -210,6 +211,7 @@ export class AgentSessionRuntime {
 		const sessionManager = SessionManager.open(sessionPath, undefined, options?.cwdOverride);
 		assertSessionCwdExists(sessionManager, this.cwd);
 		await this.teardownCurrent("resume", sessionManager.getSessionFile());
+		clearExtensionCache();
 		this.apply(
 			await this.createRuntime({
 				cwd: sessionManager.getCwd(),
@@ -243,6 +245,7 @@ export class AgentSessionRuntime {
 		}
 
 		await this.teardownCurrent("new", sessionManager.getSessionFile());
+		clearExtensionCache();
 		this.apply(
 			await this.createRuntime({
 				cwd: this.cwd,
@@ -297,6 +300,7 @@ export class AgentSessionRuntime {
 				const sessionManager = SessionManager.create(this.cwd, sessionDir);
 				sessionManager.newSession({ parentSession: currentSessionFile });
 				await this.teardownCurrent("fork", sessionManager.getSessionFile());
+				clearExtensionCache();
 				this.apply(
 					await this.createRuntime({
 						cwd: this.cwd,
@@ -318,6 +322,7 @@ export class AgentSessionRuntime {
 				throw new Error("Failed to create forked session");
 			}
 			await this.teardownCurrent("fork", sessionManager.getSessionFile());
+			clearExtensionCache();
 			this.apply(
 				await this.createRuntime({
 					cwd: sessionManager.getCwd(),
@@ -337,6 +342,7 @@ export class AgentSessionRuntime {
 		} else {
 			sessionManager.createBranchedSession(targetLeafId);
 		}
+		clearExtensionCache();
 		this.apply(
 			await this.createRuntime({
 				cwd: this.cwd,
@@ -389,6 +395,7 @@ export class AgentSessionRuntime {
 		const sessionManager = SessionManager.open(destinationPath, sessionDir, cwdOverride);
 		assertSessionCwdExists(sessionManager, this.cwd);
 		await this.teardownCurrent("resume", sessionManager.getSessionFile());
+		clearExtensionCache();
 		this.apply(
 			await this.createRuntime({
 				cwd: sessionManager.getCwd(),
