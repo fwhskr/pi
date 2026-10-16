@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type CreateAgentSessionRuntimeFactory,
@@ -9,7 +9,6 @@ import {
 	createAgentSessionRuntime,
 	createAgentSessionServices,
 } from "../../../src/core/agent-session-runtime.ts";
-import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { ModelRuntime } from "../../../src/core/model-runtime.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
 
@@ -58,14 +57,14 @@ describe("extension source on in-process session replacement", () => {
 export default function(pi) { pi.on("session_start", event => observe(${JSON.stringify(version)}, event.reason)); }`;
 			writeFileSync(entryPath, source("v1"));
 
-			const faux = registerFauxProvider({ models: [{ id: "fixture-model", reasoning: false }] });
-			cleanups.push(() => faux.unregister());
-			const authStorage = AuthStorage.inMemory();
-			await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "fixture-key" }));
+			const faux = fauxProvider({ models: [{ id: "fixture-model", reasoning: false }] });
 			const modelRuntime = await ModelRuntime.create({
-				credentials: authStorage,
-				modelsPath: join(agentDir, "models.json"),
+				authPath: join(agentDir, "auth.json"),
+				modelsPath: null,
+				allowModelNetwork: false,
+				refreshOnCreate: false,
 			});
+			modelRuntime.registerNativeProvider(faux.provider);
 			const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
 				const services = await createAgentSessionServices({
 					cwd,
