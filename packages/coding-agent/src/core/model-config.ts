@@ -1,6 +1,7 @@
 /** Immutable, credential-blind models.json snapshot. */
 
 import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { ProviderCompatSchema } from "@earendil-works/pi-ai/providers/compat-schema";
 import {
 	ModelCostSchema,
@@ -66,6 +67,8 @@ const ModelOverrideSchema = Type.Object({
 
 const ProviderConfigSchema = Type.Object({
 	name: Type.Optional(Type.String({ minLength: 1 })),
+	/** Inherit a native catalog for an account alias without copying model lists. */
+	catalogProvider: Type.Optional(Type.String({ minLength: 1 })),
 	baseUrl: Type.Optional(Type.String({ minLength: 1 })),
 	apiKey: Type.Optional(Type.String({ minLength: 1 })),
 	api: Type.Optional(Type.String({ minLength: 1 })),
@@ -123,6 +126,31 @@ export class ModelConfig {
 
 	static async load(modelsJsonPath: string | undefined): Promise<ModelConfig> {
 		if (!modelsJsonPath) return new ModelConfig(new Map());
+		// Machine-owned routes/catalog references are not owner configuration.
+		// Explicit owner values always win; neither source is ever rewritten here.
+		const generated = await ModelConfig.loadFile(join(dirname(modelsJsonPath), "models.generated.json"));
+		const owner = await ModelConfig.loadFile(modelsJsonPath);
+		if (generated.error || owner.error) return new ModelConfig(new Map(), generated.error ?? owner.error);
+		const providers = new Map(generated.providers);
+		for (const [id, config] of owner.providers) {
+			const inherited = providers.get(id);
+			providers.set(
+				id,
+				deepFreeze({
+					...inherited,
+					...config,
+					...(inherited?.modelOverrides || config.modelOverrides
+						? {
+								modelOverrides: { ...inherited?.modelOverrides, ...config.modelOverrides },
+							}
+						: {}),
+				}),
+			);
+		}
+		return new ModelConfig(providers);
+	}
+
+	private static async loadFile(modelsJsonPath: string): Promise<ModelConfig> {
 		const path = normalizePath(modelsJsonPath);
 		let content: string;
 		try {

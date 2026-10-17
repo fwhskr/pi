@@ -171,6 +171,8 @@ function mergeHeaders(
 
 /** Configured pi-ai Models collection used by coding-agent and SDK consumers. */
 export class ModelRuntime implements Models {
+	/** Extensions may publish machine-owned routes separately from models.json. */
+	static readonly generatedProviderConfig = true;
 	private readonly models: MutableModels;
 	private readonly credentials: RuntimeCredentials;
 	private readonly defaultBuiltins: ReadonlyMap<string, Provider>;
@@ -272,6 +274,22 @@ export class ModelRuntime implements Models {
 		for (const [providerId, provider] of this.defaultBuiltins) this.builtins.set(providerId, provider);
 		for (const providerId of this.config.getProviderIds()) {
 			const config = this.config.getProvider(providerId);
+			const source = config?.catalogProvider ? this.defaultBuiltins.get(config.catalogProvider) : undefined;
+			if (source && source.id !== providerId) {
+				// Share the live native catalog, including cached/remote updates. Do not
+				// refresh the same catalog once per alias or freeze a copied model array.
+				this.builtins.set(providerId, {
+					...source,
+					id: providerId,
+					name: config?.name ?? `${source.name} (${providerId})`,
+					getModels: () => source.getModels().map((model) => ({ ...model, provider: providerId })),
+					getAllModels: () => source.getModels().map((model) => ({ ...model, provider: providerId })),
+					// Account aliases are chat routes, not a way to activate paid image/classifier APIs.
+					generateImages: undefined,
+					classify: undefined,
+					refreshModels: undefined,
+				});
+			}
 			if (config?.oauth !== "radius" || !config.baseUrl) continue;
 			this.builtins.set(
 				providerId,
@@ -876,6 +894,7 @@ export class ModelRuntime implements Models {
 							errors.set(providerId, error instanceof Error ? error : new Error(String(error)));
 						}
 					}
+					return undefined;
 				}),
 			);
 		} else {
