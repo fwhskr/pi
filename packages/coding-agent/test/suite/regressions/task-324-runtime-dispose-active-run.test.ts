@@ -133,7 +133,14 @@ describe("task-324: runtime dispose while a run is active", () => {
 			faux.unregister();
 			rmSync(tempDir, { recursive: true, force: true });
 		});
-		return { runtime, faux, log, toolStartedPromise, releaseTool: () => releaseTool(), getSettledAborted: () => settledAborted };
+		return {
+			runtime,
+			faux,
+			log,
+			toolStartedPromise,
+			releaseTool: () => releaseTool(),
+			getSettledAborted: () => settledAborted,
+		};
 	}
 
 	// A deadlock fails the test quickly instead of hanging until the vitest timeout.
@@ -161,8 +168,8 @@ describe("task-324: runtime dispose while a run is active", () => {
 		const callsAtDispose = faux.state.callCount;
 		await new Promise((resolve) => setTimeout(resolve, 100));
 
-		const order = log.filter((entry) => entry !== "agent_start" && entry !== "tool_execution_start");
-		expect(order).toEqual(["tool_execution_end", "turn_end", "agent_end", "agent_settled", "session_shutdown:quit"]);
+		const order = log.filter((entry) => !["agent_start", "tool_execution_start", "turn_end"].includes(entry));
+		expect(order).toEqual(["tool_execution_end", "agent_end", "agent_settled", "session_shutdown:quit"]);
 		expect(getSettledAborted()).toBe(true);
 		// The cancelled run is not resumed after disposal.
 		expect(faux.state.callCount).toBe(callsAtDispose);
@@ -218,7 +225,9 @@ describe("task-324: runtime dispose while a run is active", () => {
 		await toolStartedPromise;
 
 		const started = Date.now();
-		const disposeWithOptions = runtime.dispose.bind(runtime) as (options?: { settleTimeoutMs: number }) => Promise<void>;
+		const disposeWithOptions = runtime.dispose.bind(runtime) as (options?: {
+			settleTimeoutMs: number;
+		}) => Promise<void>;
 		await within(disposeWithOptions({ settleTimeoutMs: 200 }), 4000, "bounded dispose");
 		expect(Date.now() - started).toBeLessThan(3000);
 		expect(log.at(-1)).toBe("session_shutdown:quit");
@@ -228,6 +237,41 @@ describe("task-324: runtime dispose while a run is active", () => {
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		releaseTool();
 		await new Promise((resolve) => setTimeout(resolve, 300));
-		expect(log.length).toBe(lengthAtShutdown);
+		expect(log.slice(lengthAtShutdown)).toEqual([]);
+	});
+
+	it("keeps the normal completion order and aborted=false when a run ends before disposal", async () => {
+		const { runtime, log, toolStartedPromise, releaseTool, getSettledAborted } = await setup();
+		const promptPromise = runtime.session.prompt("call block");
+		await toolStartedPromise;
+		releaseTool();
+		await within(promptPromise, 4000, "prompt");
+
+		await within(runtime.dispose(), 2000, "dispose");
+		const order = log.filter((entry) => !["agent_start", "tool_execution_start", "turn_end"].includes(entry));
+		expect(order).toEqual(["tool_execution_end", "agent_end", "agent_settled", "session_shutdown:quit"]);
+		expect(getSettledAborted()).toBe(false);
+	});
+
+	it("stays bounded when an agent_settled handler disposes the runtime it is settling", async () => {
+		let runtimeRef: AgentSessionRuntime | undefined;
+		let nested: Promise<void> | undefined;
+		const { runtime, log, toolStartedPromise } = await setup({
+			extra: (pi) => {
+				(pi as unknown as { on(t: string, h: () => Promise<void>): void }).on("agent_settled", async () => {
+					nested = runtimeRef?.dispose({ settleTimeoutMs: 200 });
+					await nested;
+				});
+			},
+		});
+		runtimeRef = runtime;
+		const promptPromise = runtime.session.prompt("call block");
+		await toolStartedPromise;
+
+		await within(runtime.dispose({ settleTimeoutMs: 200 }), 4000, "dispose with reentrant settled handler");
+		await within(promptPromise, 4000, "prompt");
+		expect(nested).toBeDefined();
+		expect(countOf(log, "session_shutdown:quit")).toBe(1);
+		expect(log.at(-1)).toBe("session_shutdown:quit");
 	});
 });

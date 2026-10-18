@@ -1045,6 +1045,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, baseEvent.type)) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				const event = {
 					...baseEvent,
 					entries,
@@ -1099,6 +1100,9 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, event.type)) {
 			for (const handler of handlers) {
+				// Once the runner is invalidated (session disposed or reloaded) its extensions have already
+				// received session_shutdown; no further event is delivered to them.
+				if (this.staleMessage) return result as RunnerEmitResult<TEvent>;
 				try {
 					const handlerResult = await handler(event, ctx);
 
@@ -1131,6 +1135,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, event.type)) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					const result = (await handler(event, ctx)) as CacheWarmingDecisionEventResult | undefined;
 					if (result?.action !== undefined) action = result.action;
@@ -1155,6 +1160,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "message_end")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					const currentEvent: MessageEndEvent = { ...event, message: currentMessage };
 					const handlerResult = (await handler(currentEvent, ctx)) as MessageEndEventResult | undefined;
@@ -1194,6 +1200,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "tool_result")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					const handlerResult = (await handler(currentEvent, ctx)) as ToolResultEventResult | undefined;
 					if (!handlerResult) continue;
@@ -1252,6 +1259,7 @@ export class ExtensionRunner {
 
 		for (const { handlers } of snapshotEventHandlers(this.extensions, "tool_call")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				const handlerResult = await handler(event, ctx);
 
 				if (handlerResult) {
@@ -1271,6 +1279,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "user_bash")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					const handlerResult = await handler(event, ctx);
 					if (handlerResult === undefined) continue;
@@ -1308,6 +1317,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "context")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					const visibleMessages = currentMessages.filter((message) => message.role !== "system");
 					const visibleSnapshot = visibleMessages.slice();
@@ -1335,6 +1345,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "context_with_system")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					const hadLeadingSystemMessage = currentMessages[0]?.role === "system";
 					const event: ContextWithSystemEvent = { type: "context_with_system", messages: currentMessages };
@@ -1371,6 +1382,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "before_provider_request")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					const event: BeforeProviderRequestEvent = {
 						type: "before_provider_request",
@@ -1401,6 +1413,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "before_provider_headers")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					// Handlers mutate `headers` in place; the return value is ignored.
 					const event: BeforeProviderHeadersEvent = {
@@ -1442,6 +1455,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "before_agent_start")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					const event: BeforeAgentStartEvent = {
 						...trigger,
@@ -1491,6 +1505,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "resources_discover")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					const event: ResourcesDiscoverEvent = { type: "resources_discover", cwd, reason };
 					const handlerResult = await handler(event, ctx);
@@ -1534,6 +1549,7 @@ export class ExtensionRunner {
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "input")) {
 			for (const handler of handlers) {
+				if (this.staleMessage) continue; // disposed or reloaded runners deliver no further events
 				try {
 					const event: InputEvent = {
 						type: "input",

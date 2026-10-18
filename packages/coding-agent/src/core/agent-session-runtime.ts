@@ -65,6 +65,9 @@ function extractUserMessageText(content: string | Array<{ type: string; text?: s
 		.join("");
 }
 
+/** Upper bound on waiting for an active run to settle during dispose(). */
+const DEFAULT_DISPOSE_SETTLE_TIMEOUT_MS = 5000;
+
 /**
  * Owns the current AgentSession plus its cwd-bound services.
  *
@@ -80,6 +83,8 @@ export class AgentSessionRuntime {
 	private readonly createRuntime: CreateAgentSessionRuntimeFactory;
 	private _diagnostics: AgentSessionRuntimeDiagnostic[];
 	private _modelFallbackMessage?: string;
+	private disposePhase: "idle" | "settling" | "shutdown" | "done" = "idle";
+	private disposePromise?: Promise<void>;
 
 	constructor(
 		_session: AgentSession,
@@ -408,13 +413,45 @@ export class AgentSessionRuntime {
 		return { cancelled: false };
 	}
 
-	async dispose(): Promise<void> {
-		await emitSessionShutdownEvent(this.session.extensionRunner, {
-			type: "session_shutdown",
-			reason: "quit",
-		});
-		this.beforeSessionInvalidate?.();
-		this.session.dispose();
+	/**
+	 * Dispose the runtime for process exit. An active run is aborted and settled first (bounded by
+	 * `settleTimeoutMs`, so a tool that ignores its abort signal cannot block exit), then
+	 * `session_shutdown` is emitted, and only then is the session invalidated. Repeated and concurrent
+	 * calls share one disposal; a call from inside a `session_shutdown` handler returns immediately.
+	 */
+	async dispose(options?: { settleTimeoutMs?: number }): Promise<void> {
+		if (this.disposePhase === "shutdown" || this.disposePhase === "done") return;
+		if (!this.disposePromise) {
+			this.disposePhase = "settling";
+			this.disposePromise = this.runDispose(options?.settleTimeoutMs ?? DEFAULT_DISPOSE_SETTLE_TIMEOUT_MS);
+		}
+		return this.disposePromise;
+	}
+
+	private async runDispose(settleTimeoutMs: number): Promise<void> {
+		const session = this.session;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			await Promise.race([
+				session.abort().catch(() => {}),
+				new Promise<void>((resolve) => {
+					timer = setTimeout(resolve, settleTimeoutMs);
+				}),
+			]);
+		} finally {
+			clearTimeout(timer);
+		}
+		this.disposePhase = "shutdown";
+		try {
+			await emitSessionShutdownEvent(session.extensionRunner, {
+				type: "session_shutdown",
+				reason: "quit",
+			});
+			this.beforeSessionInvalidate?.();
+		} finally {
+			session.dispose();
+			this.disposePhase = "done";
+		}
 	}
 }
 

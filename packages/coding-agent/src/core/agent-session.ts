@@ -432,6 +432,7 @@ export class AgentSession {
 	private _isBeforeSettle = false;
 	private _abortDuringBeforeSettle = false;
 	private _isEmittingAgentSettled = false;
+	private _disposed = false;
 	private readonly _deferredSettledActions: Array<() => Promise<void>> = [];
 
 	private _resourceLoader: ResourceLoader;
@@ -1077,8 +1078,15 @@ export class AgentSession {
 	}
 
 	private async _emitAgentSettled(): Promise<void> {
-		this._cacheWarmer?.onAgentSettled();
+		if (!this._disposed) this._cacheWarmer?.onAgentSettled();
 		this._isAgentRunActive = false;
+		if (this._disposed) {
+			// A run that finishes after dispose() reports to nobody: the extension context is stale and
+			// follow-up work queued by settled handlers must not resume a cancelled execution.
+			this._deferredSettledActions.length = 0;
+			this._resolveIdleWaitIfIdle();
+			return;
+		}
 		this._isEmittingAgentSettled = true;
 		try {
 			const aborted = this._agentRunAbortRequested;
@@ -1091,7 +1099,10 @@ export class AgentSession {
 		const deferred = this._deferredSettledActions.splice(0);
 		if (deferred.length > 0) {
 			try {
-				for (const action of deferred) await action();
+				for (const action of deferred) {
+					if (this._disposed) break;
+					await action();
+				}
 			} finally {
 				this._resolveIdleWaitIfIdle();
 			}
@@ -1395,7 +1406,11 @@ export class AgentSession {
 	 * Call this when completely done with the session.
 	 */
 	dispose(): void {
+		this._disposed = true;
 		try {
+			// An active run is cancelled, not left to continue: its settlement reports aborted=true and
+			// its run loop does not start another request after the abort.
+			if (this._isAgentRunActive) this._agentRunAbortRequested = true;
 			this.abortRetry();
 			this.abortCompaction();
 			this.abortBranchSummary();
